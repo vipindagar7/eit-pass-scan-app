@@ -4,7 +4,6 @@ import { Html5Qrcode } from "html5-qrcode";
 import { Camera, CameraOff, Wifi, WifiOff, RefreshCw, CheckCircle2, XCircle, Clock, Search } from "lucide-react";
 import client from "../api/client";
 import { cacheRegistrants, getCachedRegistrant, updateCachedStatus, queuePendingSync, getPendingSync, removePendingSync, pendingSyncCount } from "../lib/offlineDb";
-import { decodeQrTokenOffline } from "../lib/qrDecode";
 
 // One persistent AudioContext, reused for every beep — creating a brand
 // new context on every single call (the old approach) is unreliable:
@@ -225,7 +224,7 @@ export default function Scanner() {
   const handleScanSuccess = async (decodedText) => {
     await safeStopScanner();
     setCameraOn(false);
-    resolveScan({ qrToken: decodedText });
+    resolveScan({ manualValue: decodedText });
   };
 
   const stopCamera = async () => {
@@ -253,17 +252,9 @@ export default function Scanner() {
       return;
     }
 
-    // offline — resolve from the local cache instead
-    let ticketId = payload.manualValue;
-    if (payload.qrToken) {
-      const decoded = decodeQrTokenOffline(payload.qrToken);
-      if (!decoded || decoded.eventId !== eventId) {
-        setNotFoundMsg("This QR code doesn't look valid for this event.");
-        setBusy(false);
-        return;
-      }
-      ticketId = decoded.ticketId;
-    }
+    // offline — resolve from the local cache instead (manualValue is
+    // either the scanned ticketId or a typed email/phone/ticketId)
+    const ticketId = payload.manualValue;
 
     const cached = await getCachedRegistrant(ticketId);
     if (!cached) {
@@ -289,8 +280,11 @@ export default function Scanner() {
 
     if (isOnline) {
       try {
-        const payload = record.qrToken ? { qrToken: record.qrToken } : { manualValue: record.manualValue };
-        const { data } = await client.post(`/api/events/${eventId}/scan/mark`, { ...payload, action, gateId });
+        const { data } = await client.post(`/api/events/${eventId}/scan/mark`, {
+          manualValue: record.ticketId || record.manualValue,
+          action,
+          gateId,
+        });
         playSound(action === "IN" ? "checkIn" : "checkOut");
         setRecord({ ...record, ...data.data });
         updateCachedStatus(record.ticketId, action).catch(() => {});
