@@ -59,7 +59,7 @@ function AppRoutes() {
       <Route
         path="/admin/events/:id"
         element={
-          <RequireAuth>
+          <RequireAuth roles={["SUPER_ADMIN", "EVENT_ADMIN", "GATE_MANAGER", "REGISTRATION_MANAGER"]}>
             <EventDetail />
           </RequireAuth>
         }

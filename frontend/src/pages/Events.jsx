@@ -49,18 +49,23 @@ export default function Events() {
               </div>
               <p className="text-xs text-muted mb-4">{event.eventCode}</p>
               <div className="flex gap-2">
-                <Link
-                  to={`/admin/events/${event._id}`}
-                  className="flex-1 text-center text-sm bg-white/5 hover:bg-white/10 rounded-lg py-2"
-                >
-                  Manage
-                </Link>
+                {user?.role !== "SCANNER" && (
+                  <Link
+                    to={`/admin/events/${event._id}`}
+                    className="flex-1 text-center text-sm bg-white/5 hover:bg-white/10 rounded-lg py-2"
+                  >
+                    Manage
+                  </Link>
+                )}
                 <Link
                   to={`/scanner/${event._id}`}
                   title="Open scanner"
-                  className="px-3 bg-primary hover:bg-primary-dark text-white rounded-lg flex items-center"
+                  className={`text-center bg-primary hover:bg-primary-dark text-white rounded-lg flex items-center justify-center gap-2 ${
+                    user?.role === "SCANNER" ? "flex-1 py-2 text-sm" : "px-3"
+                  }`}
                 >
                   <ScanLine size={16} />
+                  {user?.role === "SCANNER" && "Scan"}
                 </Link>
                 {user?.role === "SUPER_ADMIN" && (
                   <button

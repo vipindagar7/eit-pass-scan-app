@@ -15,6 +15,6 @@ router.get(
   requireRole("SUPER_ADMIN", "EVENT_ADMIN", "GATE_MANAGER", "REGISTRATION_MANAGER"),
   listAttendance
 );
-router.get("/analytics", requireRole("SUPER_ADMIN", "EVENT_ADMIN", "GATE_MANAGER"), getEventAnalytics);
+router.get("/analytics", requireRole("SUPER_ADMIN", "EVENT_ADMIN", "GATE_MANAGER", "SCANNER"), getEventAnalytics);
 
 module.exports = router;
