@@ -23,13 +23,14 @@ async function resolveTicket({ qrTokenValue, manualValue, eventId }) {
       return { error: "QR token does not match its ticket", code: "TOKEN_MISMATCH" };
     }
   } else if (manualValue) {
+    const trimmed = manualValue.trim();
     const registration = await Registration.findOne({
       eventId,
-      $or: [{ uniqueValue: manualValue.toLowerCase().trim() }],
+      $or: [{ uniqueValue: trimmed.toLowerCase() }],
     });
 
     ticket =
-      (await Ticket.findOne({ ticketId: manualValue, eventId })) ||
+      (await Ticket.findOne({ ticketId: trimmed.toUpperCase(), eventId })) ||
       (registration && (await Ticket.findOne({ registrationId: registration._id, eventId })));
   }
 

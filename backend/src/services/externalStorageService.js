@@ -40,15 +40,18 @@ async function findExternalRecord(dataSourceDoc, { ticketIdValue, manualValue })
   const names = dataSourceDoc.externalFieldNames;
   const fm = dataSourceDoc.fieldMap || {};
 
+  const trimmedManual = manualValue ? manualValue.trim() : manualValue;
+  const ticketIdSearch = ticketIdValue ? ticketIdValue.trim().toUpperCase() : trimmedManual?.toUpperCase();
+
   if (dataSourceDoc.type === "mongodb") {
     const collection = await getMongoCollection(dataSourceDoc);
     const query = ticketIdValue
-      ? { [names.ticketId]: ticketIdValue }
+      ? { [names.ticketId]: ticketIdSearch }
       : {
           $or: [
-            fm.email ? { [fm.email]: manualValue } : null,
-            fm.phone ? { [fm.phone]: manualValue } : null,
-            { [names.ticketId]: manualValue },
+            fm.email ? { [fm.email]: trimmedManual } : null,
+            fm.phone ? { [fm.phone]: trimmedManual } : null,
+            { [names.ticketId]: ticketIdSearch },
           ].filter(Boolean),
         };
     return collection.findOne(query);
@@ -58,7 +61,7 @@ async function findExternalRecord(dataSourceDoc, { ticketIdValue, manualValue })
     const pool = getPgPool(dataSourceDoc);
     if (ticketIdValue) {
       const result = await pool.query(`SELECT * FROM ${dataSourceDoc.tableName} WHERE ${names.ticketId} = $1 LIMIT 1`, [
-        ticketIdValue,
+        ticketIdSearch,
       ]);
       return result.rows[0] || null;
     }
@@ -66,14 +69,14 @@ async function findExternalRecord(dataSourceDoc, { ticketIdValue, manualValue })
     const params = [];
     if (fm.email) {
       clauses.push(`${fm.email} = $${params.length + 1}`);
-      params.push(manualValue);
+      params.push(trimmedManual);
     }
     if (fm.phone) {
       clauses.push(`${fm.phone} = $${params.length + 1}`);
-      params.push(manualValue);
+      params.push(trimmedManual);
     }
     clauses.push(`${names.ticketId} = $${params.length + 1}`);
-    params.push(manualValue);
+    params.push(ticketIdSearch);
 
     const result = await pool.query(
       `SELECT * FROM ${dataSourceDoc.tableName} WHERE ${clauses.join(" OR ")} LIMIT 1`,

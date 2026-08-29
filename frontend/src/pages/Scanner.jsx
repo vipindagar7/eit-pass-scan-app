@@ -6,20 +6,58 @@ import client from "../api/client";
 import { cacheRegistrants, getCachedRegistrant, updateCachedStatus, queuePendingSync, getPendingSync, removePendingSync, pendingSyncCount } from "../lib/offlineDb";
 import { decodeQrTokenOffline } from "../lib/qrDecode";
 
-function beep(frequency = 880, duration = 120) {
+// One persistent AudioContext, reused for every beep — creating a brand
+// new context on every single call (the old approach) is unreliable:
+// some browsers throttle/suspend rapidly-created contexts, and it's
+// wasteful. This one is created lazily on first use and resumed if the
+// browser auto-suspended it (which mobile Safari/Chrome do until a user
+// gesture unlocks audio — camera permission itself counts as that gesture
+// here, but resuming defensively costs nothing).
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === "suspended") {
+    audioCtx.resume().catch(() => {});
+  }
+  return audioCtx;
+}
+
+// Distinct 3-beep vocabulary the whole flow uses:
+//   scanned  — QR successfully decoded (before details even load)
+//   fetched  — details resolved and shown on screen
+//   checkIn  — check-in completed
+//   checkOut — check-out completed
+// Each is its own frequency/pattern so they're distinguishable by ear,
+// and loud enough to hear over ambient noise at an entry gate.
+const SOUNDS = {
+  scanned: [{ freq: 1046, dur: 90 }],
+  fetched: [{ freq: 1318, dur: 90 }, { freq: 1568, dur: 110 }],
+  checkIn: [{ freq: 784, dur: 90 }, { freq: 1046, dur: 90 }, { freq: 1568, dur: 160 }],
+  checkOut: [{ freq: 1046, dur: 90 }, { freq: 622, dur: 180 }],
+};
+
+function playSound(name) {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = frequency;
-    gain.gain.setValueAtTime(0.2, ctx.currentTime);
-    osc.start();
-    osc.stop(ctx.currentTime + duration / 1000);
-    osc.onended = () => ctx.close();
-  } catch {
-    // Web Audio not available — not critical
+    const ctx = getAudioCtx();
+    const notes = SOUNDS[name] || SOUNDS.scanned;
+    let t = ctx.currentTime;
+    for (const { freq, dur } of notes) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "square"; // sharper, more piercing/audible than the default sine
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(0.5, t); // loud
+      gain.gain.exponentialRampToValueAtTime(0.001, t + dur / 1000);
+      osc.start(t);
+      osc.stop(t + dur / 1000);
+      t += dur / 1000 + 0.03; // tiny gap between notes
+    }
+  } catch (err) {
+    console.warn("[scanner] couldn't play sound:", err);
   }
 }
 
@@ -143,11 +181,19 @@ export default function Scanner() {
       html5Qr
         .start(
           { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 250, height: 250 } },
+          {
+            fps: 15,
+            qrbox: { width: 280, height: 280 },
+            // uses the browser's native, hardware-accelerated barcode
+            // detector where available (most modern Android Chrome) —
+            // significantly more reliable/faster than the pure-JS
+            // decoder html5-qrcode falls back to otherwise
+            experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+          },
           (decodedText) => {
             if (decodedText === lastScannedRef.current) return;
             lastScannedRef.current = decodedText;
-            beep(880, 100);
+            playSound("scanned");
             handleScanSuccess(decodedText);
           },
           () => {}
@@ -195,6 +241,7 @@ export default function Scanner() {
       try {
         const { data } = await client.post(`/api/events/${eventId}/scan/resolve`, payload);
         setRecord({ ...data.data, ...payload });
+        playSound("fetched");
       } catch (err) {
         setNotFoundMsg(err.response?.data?.message || "No matching registration found");
       } finally {
@@ -220,6 +267,7 @@ export default function Scanner() {
       setNotFoundMsg("Not found in the offline cache. Reconnect to search the full list.");
     } else {
       setRecord({ ...payload, ticketId: cached.ticketId, customFields: { name: cached.name }, currentStatus: cached.currentStatus, history: [], offline: true });
+      playSound("fetched");
     }
     setBusy(false);
   };
@@ -240,7 +288,7 @@ export default function Scanner() {
       try {
         const payload = record.qrToken ? { qrToken: record.qrToken } : { manualValue: record.manualValue };
         const { data } = await client.post(`/api/events/${eventId}/scan/mark`, { ...payload, action, gateId });
-        beep(action === "IN" ? 1200 : 600, 150);
+        playSound(action === "IN" ? "checkIn" : "checkOut");
         setRecord({ ...record, ...data.data });
         updateCachedStatus(record.ticketId, action).catch(() => {});
         refreshStats();
@@ -255,7 +303,7 @@ export default function Scanner() {
     }
 
     // offline — update locally, queue the actual sync for later
-    beep(action === "IN" ? 1200 : 600, 150);
+    playSound(action === "IN" ? "checkIn" : "checkOut");
     await updateCachedStatus(record.ticketId, action);
     await queuePendingSync({ ticketId: record.ticketId, action, gateId });
     setRecord({ ...record, currentStatus: action, offline: true });
