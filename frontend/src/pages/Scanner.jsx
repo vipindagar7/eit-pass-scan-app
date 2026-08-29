@@ -69,6 +69,7 @@ export default function Scanner() {
   const [gateId, setGateId] = useState("");
   const [cameraOn, setCameraOn] = useState(false);
   const [record, setRecord] = useState(null);
+  const [lastDecoded, setLastDecoded] = useState(""); // raw text read from the last QR scan — shown for debugging misreads
   const [notFoundMsg, setNotFoundMsg] = useState("");
   const [manualValue, setManualValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -191,10 +192,12 @@ export default function Scanner() {
             experimentalFeatures: { useBarCodeDetectorIfSupported: true },
           },
           (decodedText) => {
-            if (decodedText === lastScannedRef.current) return;
-            lastScannedRef.current = decodedText;
+            const trimmed = decodedText.trim();
+            if (trimmed === lastScannedRef.current) return;
+            lastScannedRef.current = trimmed;
+            setLastDecoded(trimmed);
             playSound("scanned");
-            handleScanSuccess(decodedText);
+            handleScanSuccess(trimmed);
           },
           () => {}
         )
@@ -384,15 +387,23 @@ export default function Scanner() {
                 </button>
               </>
             ) : (
-              <button
-                onClick={() => {
-                  setNotFoundMsg("");
-                  setCameraOn(true);
-                }}
-                className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl py-5 mb-4 transition shadow-lg shadow-primary/20 active:scale-[0.98]"
-              >
-                <Camera size={20} /> Start scanning
-              </button>
+              <>
+                {busy && lastDecoded && (
+                  <div className="mb-4 rounded-xl border border-border bg-surface p-3 animate-fade-in">
+                    <p className="text-[10px] text-muted uppercase tracking-wide mb-1">Scanned — looking up…</p>
+                    <p className="text-xs font-mono break-all">{lastDecoded}</p>
+                  </div>
+                )}
+                <button
+                  onClick={() => {
+                    setNotFoundMsg("");
+                    setCameraOn(true);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl py-5 mb-4 transition shadow-lg shadow-primary/20 active:scale-[0.98]"
+                >
+                  <Camera size={20} /> Start scanning
+                </button>
+              </>
             )}
           </div>
         )}
@@ -402,6 +413,11 @@ export default function Scanner() {
             <XCircle size={32} className="text-danger mx-auto mb-2" />
             <p className="font-bold text-danger mb-1">Not found</p>
             <p className="text-sm">{notFoundMsg}</p>
+            {lastDecoded && (
+              <p className="text-xs text-muted font-mono break-all mt-3 pt-3 border-t border-danger/20">
+                Scanned text: {lastDecoded}
+              </p>
+            )}
           </div>
         )}
 

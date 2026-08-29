@@ -44,7 +44,7 @@ export default function TicketPage() {
           <p className="font-mono text-xs text-muted mb-4">{ticket.ticketId}</p>
 
           <div className="bg-white p-4 rounded-xl inline-block mb-6">
-            <QRCodeSVG value={ticket.qrToken} size={200} />
+            <QRCodeSVG value={ticket.qrToken} size={240} level="H" />
           </div>
 
           {ticket.event.venue && <p className="text-sm">{ticket.event.venue}</p>}

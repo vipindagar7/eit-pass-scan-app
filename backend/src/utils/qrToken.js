@@ -11,7 +11,7 @@ function sign(ticketId, eventId) {
 
 function verify(token) {
   try {
-    const decoded = Buffer.from(token, "base64url").toString("utf8");
+    const decoded = Buffer.from(token.trim(), "base64url").toString("utf8");
     const [ticketId, eventId, signature] = decoded.split(".");
     if (!ticketId || !eventId || !signature) return null;
 
