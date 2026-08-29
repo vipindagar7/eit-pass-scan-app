@@ -19,6 +19,13 @@ const analyticsRoutes = require("./routes/analytics");
 
 const app = express();
 
+// nginx sits in front of this app in production and adds X-Forwarded-For —
+// without this, express-rate-limit throws on that header since Express
+// doesn't trust proxy headers by default (security default, since a
+// direct client could otherwise spoof this header to bypass rate limits).
+// "1" means trust exactly one hop (nginx) — correct for this setup.
+app.set("trust proxy", 1);
+
 const allowedOrigins = [
   "http://localhost:5544",
   "https://passscan.eitfaridabad.co.in",
