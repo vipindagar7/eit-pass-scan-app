@@ -33,6 +33,7 @@ const dataSourceSchema = new mongoose.Schema(
       qrToken: { type: String, default: "qrToken" },
       checkedIn: { type: String, default: "checkedIn" },
       checkedInAt: { type: String, default: "checkedInAt" },
+      checkedOutAt: { type: String, default: "checkedOutAt" },
       // Postgres only — the column used to identify a specific row for
       // updates (e.g. "id"). MongoDB always uses its own _id instead.
       primaryKeyColumn: { type: String, default: "id" },

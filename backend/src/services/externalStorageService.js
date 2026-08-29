@@ -163,6 +163,43 @@ async function markExternalCheckedIn(dataSourceDoc, record, recordKey) {
   return { alreadyCheckedIn: false, checkedInAt: now };
 }
 
+// Marks a record as checked OUT directly in the external source — the
+// reverse of markExternalCheckedIn. Only succeeds if currently checked
+// in (atomic, same guarantee as check-in). Creates the checkedOutAt
+// field/column first if it doesn't exist.
+async function markExternalCheckedOut(dataSourceDoc, record, recordKey) {
+  const names = dataSourceDoc.externalFieldNames;
+
+  if (!record[names.checkedIn]) {
+    return { notCheckedIn: true };
+  }
+
+  const now = new Date();
+
+  if (dataSourceDoc.type === "mongodb") {
+    const collection = await getMongoCollection(dataSourceDoc);
+    const result = await collection.updateOne(
+      { _id: recordKey, [names.checkedIn]: true }, // atomic — only flips if currently checked in
+      { $set: { [names.checkedIn]: false, [names.checkedOutAt]: now } }
+    );
+    if (result.modifiedCount === 0) {
+      return { notCheckedIn: true };
+    }
+  } else {
+    const pool = getPgPool(dataSourceDoc);
+    await ensurePostgresColumns(pool, dataSourceDoc.tableName, [[names.checkedOutAt, "TIMESTAMP"]]);
+    const result = await pool.query(
+      `UPDATE ${dataSourceDoc.tableName} SET ${names.checkedIn} = FALSE, ${names.checkedOutAt} = $1 WHERE ${recordKey.column} = $2 AND ${names.checkedIn} = TRUE RETURNING *`,
+      [now, recordKey.value]
+    );
+    if (result.rowCount === 0) {
+      return { notCheckedIn: true };
+    }
+  }
+
+  return { checkedOutAt: now };
+}
+
 // Reads every record from the external source, mapped into a display
 // shape the Registrations tab can render the same way regardless of
 // where the data actually lives.
@@ -243,6 +280,7 @@ module.exports = {
   findExternalRecord,
   ensureExternalTicket,
   markExternalCheckedIn,
+  markExternalCheckedOut,
   readAllExternal,
   updateExternalRecord,
   deleteExternalRecord,

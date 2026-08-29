@@ -196,12 +196,6 @@ async function resolveExternal(req, res, source, { qrTokenValue, manualValue }) 
 }
 
 async function markExternal(req, res, source, { qrTokenValue, manualValue, action, gateId }) {
-  // external mode only supports a single checked-in flag (see the
-  // externalStorageService note) — check-out isn't tracked there
-  if (action === "OUT") {
-    return res.status(400).json({ success: false, message: "Check-out isn't supported for externally-stored registrations yet" });
-  }
-
   let ticketIdValue = null;
   if (qrTokenValue) {
     const decoded = qrToken.verify(qrTokenValue);
@@ -220,29 +214,44 @@ async function markExternal(req, res, source, { qrTokenValue, manualValue, actio
         ? record._id
         : { column: source.externalFieldNames.primaryKeyColumn, value: record[source.externalFieldNames.primaryKeyColumn] };
 
-    await externalStorage.ensureExternalTicket(source, record, recordKey);
-    const result = await externalStorage.markExternalCheckedIn(source, record, recordKey);
-
     const fm = source.fieldMap || {};
     const customFields = {};
     for (const [ourField, externalField] of Object.entries(fm)) {
       if (externalField && record[externalField] !== undefined) customFields[ourField] = record[externalField];
     }
 
-    if (result.alreadyCheckedIn) {
+    if (action === "IN") {
+      await externalStorage.ensureExternalTicket(source, record, recordKey);
+      const result = await externalStorage.markExternalCheckedIn(source, record, recordKey);
+
+      if (result.alreadyCheckedIn) {
+        return res.status(409).json({
+          success: false,
+          message: "Already checked in",
+          code: "ALREADY_CHECKED_IN",
+          data: { customFields, currentStatus: "IN", lastEntry: { type: "IN", at: result.checkedInAt } },
+        });
+      }
+
+      await logAction(req, "TICKET_CHECKED_IN_EXTERNAL", "DataSource", source._id, { gateId });
+      return res.json({ success: true, data: { customFields, currentStatus: "IN", history: [{ type: "IN", at: result.checkedInAt }] } });
+    }
+
+    // action === "OUT"
+    const result = await externalStorage.markExternalCheckedOut(source, record, recordKey);
+    if (result.notCheckedIn) {
       return res.status(409).json({
         success: false,
-        message: "Already checked in",
-        code: "ALREADY_CHECKED_IN",
-        data: { customFields, currentStatus: "IN", lastEntry: { type: "IN", at: result.checkedInAt } },
+        message: "Not currently checked in",
+        code: "NOT_CHECKED_IN",
+        data: { customFields, currentStatus: null },
       });
     }
 
-    await logAction(req, "TICKET_CHECKED_IN_EXTERNAL", "DataSource", source._id, { gateId });
-
-    res.json({ success: true, data: { customFields, currentStatus: "IN", history: [{ type: "IN", at: result.checkedInAt }] } });
+    await logAction(req, "TICKET_CHECKED_OUT_EXTERNAL", "DataSource", source._id, { gateId });
+    res.json({ success: true, data: { customFields, currentStatus: "OUT", history: [{ type: "OUT", at: result.checkedOutAt }] } });
   } catch (err) {
-    res.status(502).json({ success: false, message: `Couldn't check in: ${err.message}` });
+    res.status(502).json({ success: false, message: `Couldn't update check-in status: ${err.message}` });
   }
 }
 
