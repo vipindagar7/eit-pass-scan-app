@@ -1,10 +1,55 @@
 const { resolveTicket, markAttendance } = require("../services/scannerService");
 const Attendance = require("../models/Attendance");
 const Registration = require("../models/Registration");
+const Ticket = require("../models/Ticket");
 const DataSource = require("../models/DataSource");
 const externalStorage = require("../services/externalStorageService");
 const qrToken = require("../utils/qrToken");
 const { logAction } = require("../utils/auditLog");
+
+// GET /api/events/:eventId/scan/offline-cache — a lean list of every
+// registrant (ticketId + a display name + current status), for the
+// scanner to download once and cache client-side (IndexedDB) so it can
+// keep resolving/showing details while offline. Works for both storage
+// modes.
+async function getOfflineCache(req, res) {
+  const externalSource = await DataSource.findOne({ eventId: req.params.eventId, storageMode: "external" });
+
+  if (externalSource) {
+    try {
+      const records = await externalStorage.readAllExternal(externalSource);
+      return res.json({
+        success: true,
+        data: records
+          .filter((r) => r.ticketId)
+          .map((r) => ({
+            ticketId: r.ticketId,
+            name: r.customFields?.name || Object.values(r.customFields || {})[0] || "",
+            currentStatus: r.checkedIn ? "IN" : null,
+          })),
+      });
+    } catch (err) {
+      return res.status(502).json({ success: false, message: `Couldn't load offline cache: ${err.message}` });
+    }
+  }
+
+  const tickets = await Ticket.find({ eventId: req.params.eventId, status: "ACTIVE" }).select(
+    "ticketId currentCheckStatus registrationId"
+  );
+  const registrations = await Registration.find({
+    _id: { $in: tickets.map((t) => t.registrationId) },
+  }).select("customFields");
+  const regMap = new Map(registrations.map((r) => [String(r._id), r]));
+
+  res.json({
+    success: true,
+    data: tickets.map((t) => ({
+      ticketId: t.ticketId,
+      name: regMap.get(String(t.registrationId))?.customFields?.name || "",
+      currentStatus: t.currentCheckStatus,
+    })),
+  });
+}
 
 // POST /api/events/:eventId/scan/resolve — looks up and returns full
 // details + current status, WITHOUT changing anything. This is what runs
@@ -220,4 +265,4 @@ async function listAttendance(req, res) {
   res.json({ success: true, data: records, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
 }
 
-module.exports = { scanResolve, scanMark, listAttendance };
+module.exports = { scanResolve, scanMark, listAttendance, getOfflineCache };
